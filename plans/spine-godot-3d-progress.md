@@ -63,6 +63,20 @@ Port Godot runtime presentation from 2D (`Node2D`/`CanvasItem`) to 3D (`Node3D`)
 - Build validation succeeded after these changes:
   - `scons platform=windows target=template_debug`
 
+### 7) 3D orientation + skeleton scale usability update (2026-03-19)
+
+- Updated [`SpineSprite3D`](spine-godot/spine_godot/SpineSprite3D.cpp) to avoid upside-down output in 3D scenes:
+  - Apply skeleton Y inversion internally via `skeleton->set_scale_y(-skeleton_scale)` during skeleton initialization and when scale changes.
+  - Result: users no longer need to set negative `Node3D` Y scale to get correct orientation.
+- Added `skeleton_scale` property to [`SpineSprite3D`](spine-godot/spine_godot/SpineSprite3D.h):
+  - Exposed with getter/setter and inspector binding.
+  - Default set to `0.01` (Unity-style smaller default world size).
+- Updated example scene [`spine-sprite-3d.tscn`](spine-godot/example-v4-extension/tests/spine-sprite-3d.tscn):
+  - Replaced node transform scaling with `skeleton_scale = 0.01`.
+  - Adjusted camera distance to keep framing appropriate.
+- Build validation succeeded after these changes:
+  - `scons platform=windows target=template_debug`
+
 ---
 
 ## Current limitations (intentional / not done yet)

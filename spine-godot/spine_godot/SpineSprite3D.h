@@ -92,6 +92,7 @@ protected:
 
 	SpineConstant::UpdateMode update_mode;
 	float time_scale;
+	float skeleton_scale;
 	float depth_separation;
 
 	spine::Vector<unsigned short> quad_indices;
@@ -133,6 +134,9 @@ public:
 
 	void set_time_scale(float value);
 	float get_time_scale();
+
+	void set_skeleton_scale(float value);
+	float get_skeleton_scale();
 
 	void set_depth_separation(float value);
 	float get_depth_separation();

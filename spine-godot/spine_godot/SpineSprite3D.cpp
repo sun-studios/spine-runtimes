@@ -90,6 +90,8 @@ void SpineSprite3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_update_mode"), &SpineSprite3D::get_update_mode);
 	ClassDB::bind_method(D_METHOD("set_time_scale", "v"), &SpineSprite3D::set_time_scale);
 	ClassDB::bind_method(D_METHOD("get_time_scale"), &SpineSprite3D::get_time_scale);
+	ClassDB::bind_method(D_METHOD("set_skeleton_scale", "v"), &SpineSprite3D::set_skeleton_scale);
+	ClassDB::bind_method(D_METHOD("get_skeleton_scale"), &SpineSprite3D::get_skeleton_scale);
 	ClassDB::bind_method(D_METHOD("set_depth_separation", "v"), &SpineSprite3D::set_depth_separation);
 	ClassDB::bind_method(D_METHOD("get_depth_separation"), &SpineSprite3D::get_depth_separation);
 
@@ -107,10 +109,11 @@ void SpineSprite3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "skeleton_data_res", PROPERTY_HINT_RESOURCE_TYPE, "SpineSkeletonDataResource"), "set_skeleton_data_res", "get_skeleton_data_res");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "update_mode", PROPERTY_HINT_ENUM, "Process,Physics,Manual"), "set_update_mode", "get_update_mode");
 	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "time_scale"), "set_time_scale", "get_time_scale");
+	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "skeleton_scale", PROPERTY_HINT_RANGE, "0.0001,10,0.0001,or_greater"), "set_skeleton_scale", "get_skeleton_scale");
 	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "depth_separation", PROPERTY_HINT_RANGE, "0.0001,0.1,0.0001"), "set_depth_separation", "get_depth_separation");
 }
 
-SpineSprite3D::SpineSprite3D() : spine_proxy(memnew(SpineSprite)), update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0f), depth_separation(0.001f) {
+SpineSprite3D::SpineSprite3D() : spine_proxy(memnew(SpineSprite)), update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0f), skeleton_scale(0.01f), depth_separation(0.001f) {
 	quad_indices.setSize(6, 0);
 	quad_indices[0] = 0;
 	quad_indices[1] = 1;
@@ -191,6 +194,8 @@ void SpineSprite3D::on_skeleton_data_changed() {
 
 	Ref<SpineSkeleton> skeleton = get_skeleton();
 	if (skeleton.is_valid() && skeleton->get_spine_object()) {
+		skeleton->set_scale_x(skeleton_scale);
+		skeleton->set_scale_y(-skeleton_scale);
 		generate_meshes_for_slots(skeleton);
 		update_skeleton(0);
 	}
@@ -474,6 +479,21 @@ void SpineSprite3D::set_time_scale(float value) {
 
 float SpineSprite3D::get_time_scale() {
 	return time_scale;
+}
+
+void SpineSprite3D::set_skeleton_scale(float value) {
+	skeleton_scale = value <= 0.0f ? 0.0001f : value;
+
+	Ref<SpineSkeleton> skeleton = get_skeleton();
+	if (skeleton.is_valid() && skeleton->get_spine_object()) {
+		skeleton->set_scale_x(skeleton_scale);
+		skeleton->set_scale_y(-skeleton_scale);
+		update_skeleton(0);
+	}
+}
+
+float SpineSprite3D::get_skeleton_scale() {
+	return skeleton_scale;
 }
 
 void SpineSprite3D::set_depth_separation(float value) {

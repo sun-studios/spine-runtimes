@@ -12,12 +12,12 @@ script = ExtResource("2_script")
 rotation = Vector3(-0.523599, 0.523599, 0.0)
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 750)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 7.5)
 attributes = SubResource("CameraAttributesPractical_1")
 current = true
 
 [node name="SpineSprite3D" type="SpineSprite3D" parent="."]
-scale = Vector3(0.6, 0.6, 0.6)
 skeleton_data_res = ExtResource("1_data")
+skeleton_scale = 0.01
 depth_separation = 0.001
 
