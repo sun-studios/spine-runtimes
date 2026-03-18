@@ -107,6 +107,8 @@ protected:
 	void generate_meshes_for_slots(Ref<SpineSkeleton> skeleton_ref);
 	void remove_meshes();
 	void update_meshes(Ref<SpineSkeleton> skeleton_ref);
+	void apply_depth_policy(SpineMesh3D *mesh_instance, int draw_order_index);
+	void apply_depth_policy_to_all_meshes();
 
 	Ref<Material> create_slot_material(const Ref<Texture> &texture, bool has_texture);
 	Ref<Material> get_or_create_slot_material(SpineRendererObject *renderer_object);

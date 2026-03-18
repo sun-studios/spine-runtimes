@@ -125,7 +125,7 @@ SpineSprite3D::SpineSprite3D() : spine_proxy(memnew(SpineSprite)), update_mode(S
 	slot_shader.instantiate();
 	slot_shader->set_code(
 			"shader_type spatial;\n"
-			"render_mode unshaded, cull_disabled;\n"
+			"render_mode unshaded, cull_disabled, depth_draw_never;\n"
 			"uniform sampler2D spine_texture : source_color;\n"
 			"uniform bool use_texture = true;\n"
 			"void fragment() {\n"
@@ -202,6 +202,7 @@ void SpineSprite3D::generate_meshes_for_slots(Ref<SpineSkeleton> skeleton_ref) {
 
 	for (int i = 0, n = (int) spine_skeleton->getSlots().size(); i < n; i++) {
 		auto mesh_instance = memnew(SpineMesh3D);
+		apply_depth_policy(mesh_instance, i);
 		add_child(mesh_instance);
 		mesh_instances.push_back(mesh_instance);
 	}
@@ -214,6 +215,19 @@ void SpineSprite3D::remove_meshes() {
 		memdelete(mesh_instance);
 	}
 	mesh_instances.clear();
+}
+
+void SpineSprite3D::apply_depth_policy(SpineMesh3D *mesh_instance, int draw_order_index) {
+	if (!mesh_instance) return;
+
+	mesh_instance->set_sorting_use_aabb_center(false);
+	mesh_instance->set_sorting_offset((float) draw_order_index * depth_separation);
+}
+
+void SpineSprite3D::apply_depth_policy_to_all_meshes() {
+	for (int i = 0, n = (int) mesh_instances.size(); i < n; i++) {
+		apply_depth_policy(mesh_instances[i], i);
+	}
 }
 
 void SpineSprite3D::_notification(int what) {
@@ -294,7 +308,11 @@ void SpineSprite3D::update_meshes(Ref<SpineSkeleton> skeleton_ref) {
 	for (int i = 0, n = (int) skeleton->getSlots().size(); i < n; ++i) {
 		spine::Slot *slot = skeleton->getDrawOrder()[i];
 		spine::Attachment *attachment = slot->getAttachment();
+		if (i >= (int) mesh_instances.size()) break;
 		SpineMesh3D *mesh_instance = mesh_instances[i];
+		if (!mesh_instance) continue;
+
+		apply_depth_policy(mesh_instance, i);
 
 		if (!attachment || !slot->getBone().isActive()) {
 			mesh_instance->clear_mesh();
@@ -307,7 +325,7 @@ void SpineSprite3D::update_meshes(Ref<SpineSkeleton> skeleton_ref) {
 		spine::Vector<unsigned short> *indices = nullptr;
 		spine::Color attachment_color(1, 1, 1, 1);
 
-		if (attachment->getRTTI().isExactly(spine::RegionAttachment::rtti)) {
+		if (attachment->getRTTI().instanceOf(spine::RegionAttachment::rtti)) {
 			auto *region = (spine::RegionAttachment *) attachment;
 			scratch_vertices.setSize(8, 0);
 			region->computeWorldVertices(*slot, scratch_vertices, 0);
@@ -323,7 +341,7 @@ void SpineSprite3D::update_meshes(Ref<SpineSkeleton> skeleton_ref) {
 			uvs = &region->getUVs();
 			indices = &quad_indices;
 			attachment_color = region->getColor();
-		} else if (attachment->getRTTI().isExactly(spine::MeshAttachment::rtti)) {
+		} else if (attachment->getRTTI().instanceOf(spine::MeshAttachment::rtti)) {
 			auto *mesh = (spine::MeshAttachment *) attachment;
 			scratch_vertices.setSize(mesh->getWorldVerticesLength(), 0);
 			mesh->computeWorldVertices(*slot, scratch_vertices);
@@ -349,8 +367,25 @@ void SpineSprite3D::update_meshes(Ref<SpineSkeleton> skeleton_ref) {
 			continue;
 		}
 
+		if ((vertices->size() & 1) != 0 || vertices->size() != uvs->size()) {
+			mesh_instance->clear_mesh();
+			continue;
+		}
+
 		int num_vertices = (int) (vertices->size() / 2);
 		if (num_vertices <= 0) {
+			mesh_instance->clear_mesh();
+			continue;
+		}
+
+		bool indices_valid = true;
+		for (int index = 0; index < (int) indices->size(); index++) {
+			if ((int) indices->buffer()[index] >= num_vertices) {
+				indices_valid = false;
+				break;
+			}
+		}
+		if (!indices_valid) {
 			mesh_instance->clear_mesh();
 			continue;
 		}
@@ -374,12 +409,11 @@ void SpineSprite3D::update_meshes(Ref<SpineSkeleton> skeleton_ref) {
 		PackedInt32Array indices_array;
 		indices_array.resize((int) indices->size());
 
-		float z = (float) i * depth_separation;
 		for (int vertex_index = 0; vertex_index < num_vertices; vertex_index++) {
 			int float_index = vertex_index * 2;
 			float x = vertices->buffer()[float_index];
 			float y = vertices->buffer()[float_index + 1];
-			vertices_array.set(vertex_index, Vector3(x, y, z));
+			vertices_array.set(vertex_index, Vector3(x, y, 0));
 			uvs_array.set(vertex_index, Vector2(uvs->buffer()[float_index], uvs->buffer()[float_index + 1]));
 			colors.set(vertex_index, tint);
 		}
@@ -443,7 +477,8 @@ float SpineSprite3D::get_time_scale() {
 }
 
 void SpineSprite3D::set_depth_separation(float value) {
-	depth_separation = value;
+	depth_separation = value < 0.0f ? 0.0f : value;
+	apply_depth_policy_to_all_meshes();
 }
 
 float SpineSprite3D::get_depth_separation() {
