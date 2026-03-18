@@ -217,12 +217,13 @@ void SpineSprite3D::remove_meshes() {
 }
 
 void SpineSprite3D::_notification(int what) {
-	switch (what) {
-		case NOTIFICATION_READY: {
-			set_process_internal(update_mode == SpineConstant::UpdateMode_Process);
-			set_physics_process_internal(update_mode == SpineConstant::UpdateMode_Physics);
-			break;
-		}
+		switch (what) {
+			case NOTIFICATION_READY: {
+				set_process_internal(update_mode == SpineConstant::UpdateMode_Process);
+				set_physics_process_internal(update_mode == SpineConstant::UpdateMode_Physics);
+				update_skeleton(0);
+				break;
+			}
 		case NOTIFICATION_INTERNAL_PROCESS: {
 			if (update_mode == SpineConstant::UpdateMode_Process) update_skeleton(get_process_delta_time());
 			break;
@@ -300,51 +301,94 @@ void SpineSprite3D::update_meshes(Ref<SpineSkeleton> skeleton_ref) {
 			continue;
 		}
 
-		if (!attachment->getRTTI().isExactly(spine::RegionAttachment::rtti)) {
+		SpineRendererObject *renderer_object = nullptr;
+		spine::Vector<float> *vertices = nullptr;
+		spine::Vector<float> *uvs = nullptr;
+		spine::Vector<unsigned short> *indices = nullptr;
+		spine::Color attachment_color(1, 1, 1, 1);
+
+		if (attachment->getRTTI().isExactly(spine::RegionAttachment::rtti)) {
+			auto *region = (spine::RegionAttachment *) attachment;
+			scratch_vertices.setSize(8, 0);
+			region->computeWorldVertices(*slot, scratch_vertices, 0);
+
+			auto *atlas_region = (spine::AtlasRegion *) region->getRegion();
+			if (!atlas_region || !atlas_region->page) {
+				mesh_instance->clear_mesh();
+				continue;
+			}
+
+			renderer_object = (SpineRendererObject *) atlas_region->page->texture;
+			vertices = &scratch_vertices;
+			uvs = &region->getUVs();
+			indices = &quad_indices;
+			attachment_color = region->getColor();
+		} else if (attachment->getRTTI().isExactly(spine::MeshAttachment::rtti)) {
+			auto *mesh = (spine::MeshAttachment *) attachment;
+			scratch_vertices.setSize(mesh->getWorldVerticesLength(), 0);
+			mesh->computeWorldVertices(*slot, scratch_vertices);
+
+			auto *atlas_region = (spine::AtlasRegion *) mesh->getRegion();
+			if (!atlas_region || !atlas_region->page) {
+				mesh_instance->clear_mesh();
+				continue;
+			}
+
+			renderer_object = (SpineRendererObject *) atlas_region->page->texture;
+			vertices = &scratch_vertices;
+			uvs = &mesh->getUVs();
+			indices = &mesh->getTriangles();
+			attachment_color = mesh->getColor();
+		} else {
 			mesh_instance->clear_mesh();
 			continue;
 		}
 
-		auto *region = (spine::RegionAttachment *) attachment;
-		scratch_vertices.setSize(8, 0);
-		region->computeWorldVertices(*slot, scratch_vertices, 0);
+		if (!vertices || !uvs || !indices || vertices->size() < 2 || uvs->size() < 2 || indices->size() == 0) {
+			mesh_instance->clear_mesh();
+			continue;
+		}
 
-		SpineRendererObject *renderer_object = (SpineRendererObject *) ((spine::AtlasRegion *) region->getRegion())->page->texture;
+		int num_vertices = (int) (vertices->size() / 2);
+		if (num_vertices <= 0) {
+			mesh_instance->clear_mesh();
+			continue;
+		}
+
 		Ref<Material> material = get_or_create_slot_material(renderer_object);
 
 		spine::Color skeleton_color = skeleton->getColor();
 		spine::Color slot_color = slot->getColor();
-		spine::Color attachment_color = region->getColor();
 		Color tint(
 			skeleton_color.r * slot_color.r * attachment_color.r,
 			skeleton_color.g * slot_color.g * attachment_color.g,
 			skeleton_color.b * slot_color.b * attachment_color.b,
 			skeleton_color.a * slot_color.a * attachment_color.a);
 
-		PackedVector3Array vertices;
-		vertices.resize(4);
-		PackedVector2Array uvs;
-		uvs.resize(4);
+		PackedVector3Array vertices_array;
+		vertices_array.resize(num_vertices);
+		PackedVector2Array uvs_array;
+		uvs_array.resize(num_vertices);
 		PackedColorArray colors;
-		colors.resize(4);
-		PackedInt32Array indices;
-		indices.resize(6);
+		colors.resize(num_vertices);
+		PackedInt32Array indices_array;
+		indices_array.resize((int) indices->size());
 
 		float z = (float) i * depth_separation;
-		for (int vertex_index = 0; vertex_index < 4; vertex_index++) {
+		for (int vertex_index = 0; vertex_index < num_vertices; vertex_index++) {
 			int float_index = vertex_index * 2;
-			float x = scratch_vertices[float_index];
-			float y = scratch_vertices[float_index + 1];
-			vertices.set(vertex_index, Vector3(x, y, z));
-			uvs.set(vertex_index, Vector2(region->getUVs()[float_index], region->getUVs()[float_index + 1]));
+			float x = vertices->buffer()[float_index];
+			float y = vertices->buffer()[float_index + 1];
+			vertices_array.set(vertex_index, Vector3(x, y, z));
+			uvs_array.set(vertex_index, Vector2(uvs->buffer()[float_index], uvs->buffer()[float_index + 1]));
 			colors.set(vertex_index, tint);
 		}
 
-		for (int index = 0; index < 6; index++) {
-			indices.set(index, quad_indices[index]);
+		for (int index = 0; index < (int) indices->size(); index++) {
+			indices_array.set(index, (int) indices->buffer()[index]);
 		}
 
-		mesh_instance->update_mesh(vertices, uvs, colors, indices, material);
+		mesh_instance->update_mesh(vertices_array, uvs_array, colors, indices_array, material);
 	}
 }
 

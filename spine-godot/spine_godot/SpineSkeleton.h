@@ -41,6 +41,7 @@
 #include <unordered_map>
 
 class SpineSprite;
+class SpineSprite3D;
 
 class SpineSkeleton : public REFCOUNTED {
 	GDCLASS(SpineSkeleton, REFCOUNTED);
@@ -49,6 +50,7 @@ class SpineSkeleton : public REFCOUNTED {
 	friend class SpineSlot;
 	friend class SpineTimeline;
 	friend class SpineSprite;
+	friend class SpineSprite3D;
 	friend class SpineAnimation;
 	friend class SpineAnimationState;
 	friend class SpineAnimationTrack;
