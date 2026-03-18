@@ -1,0 +1,23 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="SpineSkeletonDataResource" path="res://assets/spineboy/spineboy-data-res.tres" id="1_data"]
+[ext_resource type="Script" path="res://tests/spine-sprite-3d.gd" id="2_script"]
+
+[sub_resource type="CameraAttributesPractical" id="CameraAttributesPractical_1"]
+
+[node name="SpineSprite3DTest" type="Node3D"]
+script = ExtResource("2_script")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+rotation = Vector3(-0.523599, 0.523599, 0.0)
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 750)
+attributes = SubResource("CameraAttributesPractical_1")
+current = true
+
+[node name="SpineSprite3D" type="SpineSprite3D" parent="."]
+scale = Vector3(0.6, 0.6, 0.6)
+skeleton_data_res = ExtResource("1_data")
+depth_separation = 0.001
+
