@@ -40,6 +40,7 @@
 
 #ifdef SPINE_GODOT_EXTENSION
 #include <godot_cpp/classes/array_mesh.hpp>
+#include <godot_cpp/classes/geometry_instance3d.hpp>
 #include <godot_cpp/classes/material.hpp>
 #include <godot_cpp/classes/mesh.hpp>
 #include <godot_cpp/classes/mesh_instance3d.hpp>
@@ -48,6 +49,7 @@
 #include <godot_cpp/classes/shader_material.hpp>
 #include <godot_cpp/classes/texture.hpp>
 #else
+#include "scene/3d/geometry_instance_3d.h"
 #include "scene/3d/mesh_instance_3d.h"
 #include "scene/3d/node_3d.h"
 #include "scene/resources/array_mesh.h"
@@ -94,11 +96,14 @@ protected:
 	float time_scale;
 	float skeleton_scale;
 	float depth_separation;
+	GeometryInstance3D::ShadowCastingSetting cast_shadow_mode;
+	float shadow_alpha_cutoff;
 
 	spine::Vector<unsigned short> quad_indices;
 	spine::Vector<float> scratch_vertices;
 
 	Ref<Shader> slot_shader;
+	Ref<Shader> slot_shadow_shader;
 	Ref<Material> fallback_material;
 	std::unordered_map<uint64_t, Ref<Material>> material_cache;
 
@@ -110,6 +115,13 @@ protected:
 	void update_meshes(Ref<SpineSkeleton> skeleton_ref);
 	void apply_depth_policy(SpineMesh3D *mesh_instance, int draw_order_index);
 	void apply_depth_policy_to_all_meshes();
+	void apply_shadow_policy(SpineMesh3D *mesh_instance);
+	void apply_shadow_policy_to_all_meshes();
+	bool is_shadow_casting_enabled() const;
+	Ref<Shader> get_active_slot_shader() const;
+	float get_effective_shadow_alpha_cutoff() const;
+	void apply_shadow_parameters_to_material(const Ref<Material> &material);
+	void apply_shadow_parameters_to_all_materials();
 
 	Ref<Material> create_slot_material(const Ref<Texture> &texture, bool has_texture);
 	Ref<Material> get_or_create_slot_material(SpineRendererObject *renderer_object);
@@ -140,6 +152,12 @@ public:
 
 	void set_depth_separation(float value);
 	float get_depth_separation();
+
+	void set_cast_shadow_mode(int value);
+	int get_cast_shadow_mode();
+
+	void set_shadow_alpha_cutoff(float value);
+	float get_shadow_alpha_cutoff();
 
 	Ref<SpineSkin> new_skin(const String &name);
 };

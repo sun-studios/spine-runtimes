@@ -1,3 +1,4 @@
+*.zip
 .metadata/
 RemoteSystemsTempFiles/
 target
@@ -175,6 +176,7 @@ spine-godot/spine_godot/spine-cpp
 spine-godot/spine_godot/__pycache__
 spine-godot/example/.import
 spine-godot/spine_godot/*.obj
+spine
 *.obj
 *.bc
 *.o

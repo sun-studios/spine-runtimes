@@ -94,6 +94,10 @@ void SpineSprite3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_skeleton_scale"), &SpineSprite3D::get_skeleton_scale);
 	ClassDB::bind_method(D_METHOD("set_depth_separation", "v"), &SpineSprite3D::set_depth_separation);
 	ClassDB::bind_method(D_METHOD("get_depth_separation"), &SpineSprite3D::get_depth_separation);
+	ClassDB::bind_method(D_METHOD("set_cast_shadow_mode", "v"), &SpineSprite3D::set_cast_shadow_mode);
+	ClassDB::bind_method(D_METHOD("get_cast_shadow_mode"), &SpineSprite3D::get_cast_shadow_mode);
+	ClassDB::bind_method(D_METHOD("set_shadow_alpha_cutoff", "v"), &SpineSprite3D::set_shadow_alpha_cutoff);
+	ClassDB::bind_method(D_METHOD("get_shadow_alpha_cutoff"), &SpineSprite3D::get_shadow_alpha_cutoff);
 
 	ADD_SIGNAL(MethodInfo("animation_started", PropertyInfo(Variant::OBJECT, "spine_sprite", PROPERTY_HINT_TYPE_STRING, "SpineSprite3D"), PropertyInfo(Variant::OBJECT, "animation_state", PROPERTY_HINT_TYPE_STRING, "SpineAnimationState"), PropertyInfo(Variant::OBJECT, "track_entry", PROPERTY_HINT_TYPE_STRING, "SpineTrackEntry")));
 	ADD_SIGNAL(MethodInfo("animation_interrupted", PropertyInfo(Variant::OBJECT, "spine_sprite", PROPERTY_HINT_TYPE_STRING, "SpineSprite3D"), PropertyInfo(Variant::OBJECT, "animation_state", PROPERTY_HINT_TYPE_STRING, "SpineAnimationState"), PropertyInfo(Variant::OBJECT, "track_entry", PROPERTY_HINT_TYPE_STRING, "SpineTrackEntry")));
@@ -111,9 +115,12 @@ void SpineSprite3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "time_scale"), "set_time_scale", "get_time_scale");
 	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "skeleton_scale", PROPERTY_HINT_RANGE, "0.0001,10,0.0001,or_greater"), "set_skeleton_scale", "get_skeleton_scale");
 	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "depth_separation", PROPERTY_HINT_RANGE, "0.0001,0.1,0.0001"), "set_depth_separation", "get_depth_separation");
+	ADD_GROUP("Shadows", "");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "cast_shadow_mode", PROPERTY_HINT_ENUM, "Off,On,DoubleSided,ShadowsOnly"), "set_cast_shadow_mode", "get_cast_shadow_mode");
+	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "shadow_alpha_cutoff", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_shadow_alpha_cutoff", "get_shadow_alpha_cutoff");
 }
 
-SpineSprite3D::SpineSprite3D() : spine_proxy(memnew(SpineSprite)), update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0f), skeleton_scale(0.01f), depth_separation(0.001f) {
+SpineSprite3D::SpineSprite3D() : spine_proxy(memnew(SpineSprite)), update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0f), skeleton_scale(0.01f), depth_separation(0.001f), cast_shadow_mode(GeometryInstance3D::SHADOW_CASTING_SETTING_OFF), shadow_alpha_cutoff(0.0f) {
 	quad_indices.setSize(6, 0);
 	quad_indices[0] = 0;
 	quad_indices[1] = 1;
@@ -138,6 +145,24 @@ SpineSprite3D::SpineSprite3D() : spine_proxy(memnew(SpineSprite)), update_mode(S
 			"\tALPHA = c.a;\n"
 			"}\n");
 
+	slot_shadow_shader.instantiate();
+	slot_shadow_shader->set_code(
+			"shader_type spatial;\n"
+			"render_mode cull_disabled, blend_mix, depth_prepass_alpha, specular_disabled;\n"
+			"uniform sampler2D spine_texture : source_color;\n"
+			"uniform bool use_texture = true;\n"
+			"uniform float shadow_alpha_cutoff = 0.0;\n"
+			"void fragment() {\n"
+			"\tvec4 c = COLOR;\n"
+			"\tif (use_texture) c *= texture(spine_texture, UV);\n"
+			"\tALBEDO = vec3(0.0);\n"
+			"\tEMISSION = c.rgb;\n"
+			"\tALPHA = c.a;\n"
+			"\tif (shadow_alpha_cutoff > 0.0) {\n"
+			"\t\tALPHA_SCISSOR_THRESHOLD = shadow_alpha_cutoff;\n"
+			"\t}\n"
+			"}\n");
+
 	fallback_material = create_slot_material(Ref<Texture>(), false);
 }
 
@@ -145,6 +170,7 @@ SpineSprite3D::~SpineSprite3D() {
 	remove_meshes();
 	material_cache.clear();
 	fallback_material.unref();
+	slot_shadow_shader.unref();
 	slot_shader.unref();
 
 	if (spine_proxy) {
@@ -194,8 +220,11 @@ void SpineSprite3D::on_skeleton_data_changed() {
 
 	Ref<SpineSkeleton> skeleton = get_skeleton();
 	if (skeleton.is_valid() && skeleton->get_spine_object()) {
-		skeleton->set_scale_x(skeleton_scale);
-		skeleton->set_scale_y(-skeleton_scale);
+		// Keep Spine core skeleton scale at unit magnitude to avoid precision/threshold
+		// instability in inherit modes like NoRotationOrReflection when rendering at
+		// small world scales (eg, 0.01). Apply display scale in mesh generation instead.
+		skeleton->set_scale_x(1.0f);
+		skeleton->set_scale_y(-1.0f);
 		generate_meshes_for_slots(skeleton);
 		update_skeleton(0);
 	}
@@ -208,6 +237,7 @@ void SpineSprite3D::generate_meshes_for_slots(Ref<SpineSkeleton> skeleton_ref) {
 	for (int i = 0, n = (int) spine_skeleton->getSlots().size(); i < n; i++) {
 		auto mesh_instance = memnew(SpineMesh3D);
 		apply_depth_policy(mesh_instance, i);
+		apply_shadow_policy(mesh_instance);
 		add_child(mesh_instance);
 		mesh_instances.push_back(mesh_instance);
 	}
@@ -232,6 +262,59 @@ void SpineSprite3D::apply_depth_policy(SpineMesh3D *mesh_instance, int draw_orde
 void SpineSprite3D::apply_depth_policy_to_all_meshes() {
 	for (int i = 0, n = (int) mesh_instances.size(); i < n; i++) {
 		apply_depth_policy(mesh_instances[i], i);
+	}
+}
+
+void SpineSprite3D::apply_shadow_policy(SpineMesh3D *mesh_instance) {
+	if (!mesh_instance) return;
+
+	mesh_instance->set_cast_shadows_setting(cast_shadow_mode);
+}
+
+void SpineSprite3D::apply_shadow_policy_to_all_meshes() {
+	for (auto *mesh_instance: mesh_instances) {
+		apply_shadow_policy(mesh_instance);
+	}
+}
+
+bool SpineSprite3D::is_shadow_casting_enabled() const {
+	return cast_shadow_mode != GeometryInstance3D::SHADOW_CASTING_SETTING_OFF;
+}
+
+Ref<Shader> SpineSprite3D::get_active_slot_shader() const {
+	if (is_shadow_casting_enabled()) return slot_shadow_shader;
+	return slot_shader;
+}
+
+float SpineSprite3D::get_effective_shadow_alpha_cutoff() const {
+	if (!is_shadow_casting_enabled()) {
+		return 0.0f;
+	}
+
+	return shadow_alpha_cutoff;
+}
+
+void SpineSprite3D::apply_shadow_parameters_to_material(const Ref<Material> &material) {
+	Ref<ShaderMaterial> shader_material = material;
+	if (!shader_material.is_valid()) return;
+
+	Ref<Shader> active_shader = get_active_slot_shader();
+	if (active_shader.is_valid() && shader_material->get_shader() != active_shader) {
+		shader_material->set_shader(active_shader);
+	}
+
+	if (is_shadow_casting_enabled()) {
+		shader_material->set_shader_parameter(SNAME("shadow_alpha_cutoff"), get_effective_shadow_alpha_cutoff());
+	}
+}
+
+void SpineSprite3D::apply_shadow_parameters_to_all_materials() {
+	if (fallback_material.is_valid()) {
+		apply_shadow_parameters_to_material(fallback_material);
+	}
+
+	for (auto &entry: material_cache) {
+		apply_shadow_parameters_to_material(entry.second);
 	}
 }
 
@@ -280,8 +363,11 @@ void SpineSprite3D::update_skeleton(float delta) {
 
 Ref<Material> SpineSprite3D::create_slot_material(const Ref<Texture> &texture, bool has_texture) {
 	Ref<ShaderMaterial> material(memnew(ShaderMaterial));
-	material->set_shader(slot_shader);
+	material->set_shader(get_active_slot_shader());
 	material->set_shader_parameter(SNAME("use_texture"), has_texture);
+	if (is_shadow_casting_enabled()) {
+		material->set_shader_parameter(SNAME("shadow_alpha_cutoff"), get_effective_shadow_alpha_cutoff());
+	}
 	if (has_texture && texture.is_valid()) {
 		material->set_shader_parameter(SNAME("spine_texture"), texture);
 	}
@@ -414,11 +500,17 @@ void SpineSprite3D::update_meshes(Ref<SpineSkeleton> skeleton_ref) {
 		PackedInt32Array indices_array;
 		indices_array.resize((int) indices->size());
 
+		float slot_depth = 0.0f;
+		if (is_shadow_casting_enabled()) {
+			float per_slot_depth = depth_separation > 0.0f ? depth_separation : 0.0001f;
+			slot_depth = (float) i * per_slot_depth;
+		}
+
 		for (int vertex_index = 0; vertex_index < num_vertices; vertex_index++) {
 			int float_index = vertex_index * 2;
 			float x = vertices->buffer()[float_index];
 			float y = vertices->buffer()[float_index + 1];
-			vertices_array.set(vertex_index, Vector3(x, y, 0));
+			vertices_array.set(vertex_index, Vector3(x * skeleton_scale, y * skeleton_scale, slot_depth));
 			uvs_array.set(vertex_index, Vector2(uvs->buffer()[float_index], uvs->buffer()[float_index + 1]));
 			colors.set(vertex_index, tint);
 		}
@@ -486,8 +578,8 @@ void SpineSprite3D::set_skeleton_scale(float value) {
 
 	Ref<SpineSkeleton> skeleton = get_skeleton();
 	if (skeleton.is_valid() && skeleton->get_spine_object()) {
-		skeleton->set_scale_x(skeleton_scale);
-		skeleton->set_scale_y(-skeleton_scale);
+		skeleton->set_scale_x(1.0f);
+		skeleton->set_scale_y(-1.0f);
 		update_skeleton(0);
 	}
 }
@@ -503,6 +595,39 @@ void SpineSprite3D::set_depth_separation(float value) {
 
 float SpineSprite3D::get_depth_separation() {
 	return depth_separation;
+}
+
+void SpineSprite3D::set_cast_shadow_mode(int value) {
+	GeometryInstance3D::ShadowCastingSetting mode = (GeometryInstance3D::ShadowCastingSetting) value;
+	if (mode < GeometryInstance3D::SHADOW_CASTING_SETTING_OFF ||
+		mode > GeometryInstance3D::SHADOW_CASTING_SETTING_SHADOWS_ONLY) {
+		mode = GeometryInstance3D::SHADOW_CASTING_SETTING_OFF;
+	}
+
+	if (cast_shadow_mode == mode) return;
+
+	cast_shadow_mode = mode;
+	apply_shadow_policy_to_all_meshes();
+	apply_shadow_parameters_to_all_materials();
+}
+
+int SpineSprite3D::get_cast_shadow_mode() {
+	return (int) cast_shadow_mode;
+}
+
+void SpineSprite3D::set_shadow_alpha_cutoff(float value) {
+	float clamped = value;
+	if (clamped < 0.0f) clamped = 0.0f;
+	if (clamped > 1.0f) clamped = 1.0f;
+
+	if (shadow_alpha_cutoff == clamped) return;
+
+	shadow_alpha_cutoff = clamped;
+	apply_shadow_parameters_to_all_materials();
+}
+
+float SpineSprite3D::get_shadow_alpha_cutoff() {
+	return shadow_alpha_cutoff;
 }
 
 Ref<SpineSkin> SpineSprite3D::new_skin(const String &name) {
